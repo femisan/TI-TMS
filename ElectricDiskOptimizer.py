@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Wedge
 from scipy.ndimage import zoom
 from ElectricDisk import ElectricDisk
+import pickle  # 导入pickle模块
 
 class ElectricDiskOptimizer:
     def __init__(self, R=1.0, sigma=1.0, n_points=200, target_region=None):
@@ -28,7 +29,7 @@ class ElectricDiskOptimizer:
         self.hr_mask = self.create_region_mask(self.target_region)
         
         # 创建非目标区域掩模 (示例: 半径 > 0.6)
-        self.nh_mask = self.R_grid > 0.6
+        self.nh_mask = ~self.hr_mask
 
     def create_region_mask(self, region):
         """创建目标区域掩模"""
@@ -155,6 +156,47 @@ class ElectricDiskOptimizer:
         
         return result
     
+    def sgd_optimize(self, initial_currents=None, bounds=None, learning_rate=0.01, max_iter=1000):
+        """使用随机梯度下降 (SGD) 优化"""
+        if initial_currents is None:
+            initial_currents = [1.0, np.pi/3, 4*np.pi/3, 
+                                1.0, 5*np.pi/3, np.pi/2]
+        
+        if bounds is None:
+            # 默认边界：电流[0.1, 2]，角度[0, 2π]
+            bounds = [(0.1, 2)] + [(0, 2*np.pi)] * 2
+            bounds *= len(initial_currents) // 3
+
+        # 初始化参数
+        currents = np.array(initial_currents)
+        
+        for iteration in range(max_iter):
+            # 计算目标函数值
+            loss = self.objective_function(currents)
+            
+            # 打印当前迭代信息
+            print(f"Iteration {iteration + 1}/{max_iter}, Loss: {loss:.6f}")
+            
+            # 计算梯度 (数值梯度)
+            gradients = np.zeros_like(currents)
+            epsilon = 1e-6
+            for i in range(len(currents)):
+                currents[i] += epsilon
+                loss_plus = self.objective_function(currents)
+                currents[i] -= 2 * epsilon
+                loss_minus = self.objective_function(currents)
+                currents[i] += epsilon
+                gradients[i] = (loss_plus - loss_minus) / (2 * epsilon)
+            
+            # 更新参数 (梯度下降)
+            currents -= learning_rate * gradients
+            
+            # 应用边界约束
+            for i, (lower, upper) in enumerate(bounds):
+                currents[i] = np.clip(currents[i], lower, upper)
+        
+        return currents
+    
     def visualize_results(self, currents):
         """可视化优化结果"""
         current_pairs = []
@@ -168,18 +210,12 @@ class ElectricDiskOptimizer:
         # 绘制包络分布
         plt.subplot(121)
         contour = plt.contourf(self.X, self.Y, envelope, 
-                             levels=100, cmap='viridis')
+                             levels=100, cmap='RdGy_r', alpha=0.7, vmin=0, vmax=1)
         plt.colorbar(contour, label='Envelope Field Strength')
         
         # 标记目标区域
-        wedge_hr = Wedge((0,0), self.R, 
-                        *np.degrees(self.target_region["center"]),
-                        fc='none', ec='r', lw=2, linestyle='--')
-        wedge_nh = Wedge((0,0), self.R,
-                        0, 360,
-                        fc='none', ec='b', lw=2, linestyle='--')
-        plt.gca().add_patch(wedge_hr)
-        plt.gca().add_patch(wedge_nh)
+        ax = plt.gca()
+        self.draw_target_region(ax)
         
         # 标记电极位置
         for i, (_, theta1, theta2) in enumerate(current_pairs):
@@ -215,18 +251,65 @@ class ElectricDiskOptimizer:
         
         plt.tight_layout()
         plt.show()
+    
+    def confirm_target_region(self):
+        """确认目标区域的位置"""
+        plt.figure(figsize=(6, 6))
+        
+        # 绘制网格
+        plt.contourf(self.X, self.Y, np.zeros_like(self.X), levels=1, cmap='gray', alpha=0.1)
+        
+        # 绘制目标区域
+        ax = plt.gca()
+        self.draw_target_region(ax)
+        
+        # 设置图形属性
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.title("Target Region Confirmation")
+        plt.axis("equal")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+    
+    def draw_target_region(self, ax):
+        """绘制目标区域"""
+        if self.target_region["type"] == "circle":
+            r_center, theta_center = self.target_region["center"]
+            x_center = r_center * np.cos(theta_center)
+            y_center = r_center * np.sin(theta_center)
+            circle = plt.Circle((x_center, y_center), self.target_region["radius"], 
+                                color='r', fill=False, linestyle='--', linewidth=2, label='Target Region')
+            ax.add_patch(circle)
+        elif self.target_region["type"] == "sector":
+            start_angle, end_angle = np.degrees(self.target_region["angles"])
+            wedge = Wedge((0, 0), self.R, start_angle, end_angle, 
+                          color='r', fill=False, linestyle='--', linewidth=2, label='Target Region')
+            ax.add_patch(wedge)
+        else:
+            raise ValueError("Unsupported region type. Use 'circle' or 'sector'.")
 
-# 使用示例
+# filepath: /Users/nero/Development/Personal/TI-TMS/ElectricDiskOptimizer.py
 if __name__ == "__main__":
     # 自定义目标区域: 圆形 r=0.5, theta=pi/4, 半径=0.1
     target_region = {"type": "circle", "center": (0.5, np.pi/4), "radius": 0.1}
     
     optimizer = ElectricDiskOptimizer(R=1.0, target_region=target_region)
-    
-    # 执行优化
+
+    # optimizer.confirm_target_region()
+    # # 执行优化
     result = optimizer.optimize()
     print("Optimization result:", result.x)
     print("Final ratio:", -result.fun)
+
+    # 执行随机梯度下降优化
+    # result = optimizer.sgd_optimize(learning_rate=0.01, max_iter=500)
+    # print("Optimized currents:", result)
+    
+    # 保存优化结果到pickle文件
+    with open("optimization_result.pkl", "wb") as f:
+        pickle.dump(result, f)
+    print("Optimization result saved to 'optimization_result.pkl'")
     
     # 可视化结果
     optimizer.visualize_results(result.x)
