@@ -2,35 +2,59 @@ import numpy as np
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 from matplotlib.patches import Wedge
+from scipy.ndimage import zoom
 from ElectricDisk import ElectricDisk
 
 class ElectricDiskOptimizer:
-    def __init__(self, R=1.0, sigma=1.0, n_points=100):
+    def __init__(self, R=1.0, sigma=1.0, n_points=200, target_region=None):
         """初始化优化器"""
         self.R = R
         self.sigma = sigma
         self.n_points = n_points
         
-        # 定义目标区域（示例：60度扇形区域）
-        self.target_angle = (np.pi/3, 2*np.pi/3)  # Hr区域
-        self.non_target_angle = (0, np.pi/3)      # Nh区域
-        
         # 创建网格
         self.r = np.linspace(0, R, n_points)
-        self.theta = np.linspace(0, 2*np.pi, n_points)
+        self.theta = np.linspace(0, 2 * np.pi, n_points)
         self.R_grid, self.Theta_grid = np.meshgrid(self.r, self.theta)
         self.X = self.R_grid * np.cos(self.Theta_grid)
         self.Y = self.R_grid * np.sin(self.Theta_grid)
         
-        # 创建区域掩模
-        self.hr_mask = self.create_region_mask(*self.target_angle)
-        self.nh_mask = self.create_region_mask(*self.non_target_angle)
-    
-    def create_region_mask(self, start_angle, end_angle):
-        """创建区域掩模"""
-        angle_mask = (self.Theta_grid >= start_angle) & (self.Theta_grid <= end_angle)
-        radius_mask = self.R_grid > 0  # 排除中心点
-        return angle_mask & radius_mask
+        # 设置目标区域 (默认: 圆形 r=0.5, theta=pi/4, 半径=0.1)
+        if target_region is None:
+            target_region = {"type": "circle", "center": (0.5, np.pi/4), "radius": 0.1}
+        self.target_region = target_region
+        
+        # 创建目标区域掩模
+        self.hr_mask = self.create_region_mask(self.target_region)
+        
+        # 创建非目标区域掩模 (示例: 半径 > 0.6)
+        self.nh_mask = self.R_grid > 0.6
+
+    def create_region_mask(self, region):
+        """创建目标区域掩模"""
+        if region["type"] == "circle":
+            # 圆形区域: 计算与圆心的距离
+            r_center, theta_center = region["center"]
+            x_center = r_center * np.cos(theta_center)
+            y_center = r_center * np.sin(theta_center)
+            distance = np.sqrt((self.X - x_center) ** 2 + (self.Y - y_center) ** 2)
+            return distance <= region["radius"]
+        elif region["type"] == "sector":
+            # 扇形区域: 使用角度范围
+            start_angle, end_angle = region["angles"]
+            angle_mask = (self.Theta_grid >= start_angle) & (self.Theta_grid <= end_angle)
+            radius_mask = self.R_grid > 0  # 排除中心点
+            return angle_mask & radius_mask
+        else:
+            raise ValueError("Unsupported region type. Use 'circle' or 'sector'.")
+
+    def resize_mask(self, mask, target_shape):
+        """Resize a mask to match the target shape."""
+        zoom_factors = (
+            target_shape[0] / mask.shape[0],
+            target_shape[1] / mask.shape[1]
+        )
+        return zoom(mask, zoom_factors, order=0)  # Use nearest-neighbor interpolation
     
     def safe_normalize(self, x, y):
         """安全归一化向量，避免除以零"""
@@ -87,9 +111,9 @@ class ElectricDiskOptimizer:
         envelope = self.calculate_envelope(currents)
         
         # Debugging: Print shapes
-        print("Envelope shape:", envelope.shape)
-        print("HR mask shape:", self.hr_mask.shape)
-        print("NH mask shape:", self.nh_mask.shape)
+        # print("Envelope shape:", envelope.shape)
+        # print("HR mask shape:", self.hr_mask.shape)
+        # print("NH mask shape:", self.nh_mask.shape)
         
         # 计算区域平均场强
         E_hr = np.mean(envelope[self.hr_mask])
@@ -97,8 +121,14 @@ class ElectricDiskOptimizer:
         
         # 防止除以零
         if E_nh < 1e-6:
-            return -E_hr
-        return -E_hr / E_nh
+            ratio = -E_hr
+        else:
+            ratio = -E_hr / E_nh
+        
+        # 实时打印目标函数值
+        print(f"Objective function value: {ratio:.6f}")
+        
+        return ratio
     
     def optimize(self, initial_currents=None, bounds=None):
         """执行优化"""
@@ -111,10 +141,16 @@ class ElectricDiskOptimizer:
             bounds = [(0.1, 2)] + [(0, 2*np.pi)]*2
             bounds *= len(initial_currents) // 3
         
+        # 定义回调函数
+        def callback(xk):
+            current_value = self.objective_function(xk)
+            print(f"Current objective value during optimization: {current_value:.6f}")
+        
         result = minimize(self.objective_function,
                          initial_currents,
                          bounds=bounds,
                          method='L-BFGS-B',
+                         callback=callback,  # 添加回调函数
                          options={'maxiter': 50})
         
         return result
@@ -137,10 +173,10 @@ class ElectricDiskOptimizer:
         
         # 标记目标区域
         wedge_hr = Wedge((0,0), self.R, 
-                        *np.degrees(self.target_angle),
+                        *np.degrees(self.target_region["center"]),
                         fc='none', ec='r', lw=2, linestyle='--')
         wedge_nh = Wedge((0,0), self.R,
-                        *np.degrees(self.non_target_angle),
+                        0, 360,
                         fc='none', ec='b', lw=2, linestyle='--')
         plt.gca().add_patch(wedge_hr)
         plt.gca().add_patch(wedge_nh)
@@ -182,7 +218,10 @@ class ElectricDiskOptimizer:
 
 # 使用示例
 if __name__ == "__main__":
-    optimizer = ElectricDiskOptimizer(R=1.0)
+    # 自定义目标区域: 圆形 r=0.5, theta=pi/4, 半径=0.1
+    target_region = {"type": "circle", "center": (0.5, np.pi/4), "radius": 0.1}
+    
+    optimizer = ElectricDiskOptimizer(R=1.0, target_region=target_region)
     
     # 执行优化
     result = optimizer.optimize()
