@@ -28,24 +28,30 @@ class ElectricDiskOptimizer:
         # 创建目标区域掩模
         self.hr_mask = self.create_region_mask(self.target_region)
         
-        # 创建非目标区域掩模 (示例: 半径 > 0.6)
+        # 创建非目标区域掩模
         self.nh_mask = ~self.hr_mask
+        print(f"Number of True values in hr_mask: {np.sum(self.hr_mask)}")
+        print(f"Number of True values in nh_mask: {np.sum(self.nh_mask)}")
 
     def create_region_mask(self, region):
         """创建目标区域掩模"""
         if region["type"] == "circle":
-            # 圆形区域: 计算与圆心的距离
             r_center, theta_center = region["center"]
             x_center = r_center * np.cos(theta_center)
             y_center = r_center * np.sin(theta_center)
             distance = np.sqrt((self.X - x_center) ** 2 + (self.Y - y_center) ** 2)
-            return distance <= region["radius"]
+            mask = distance <= region["radius"]
+            
+            return mask
+        
         elif region["type"] == "sector":
-            # 扇形区域: 使用角度范围
             start_angle, end_angle = region["angles"]
             angle_mask = (self.Theta_grid >= start_angle) & (self.Theta_grid <= end_angle)
-            radius_mask = self.R_grid > 0  # 排除中心点
-            return angle_mask & radius_mask
+            radius_mask = self.R_grid > 0
+            mask = angle_mask & radius_mask
+
+            return mask
+        
         else:
             raise ValueError("Unsupported region type. Use 'circle' or 'sector'.")
 
@@ -251,24 +257,77 @@ class ElectricDiskOptimizer:
         
         plt.tight_layout()
         plt.show()
+
+    def confirm_target_region_3d(self):
+        """在3D表面图中显示 hr_mask 和 nh_mask 区域"""
+        from mpl_toolkits.mplot3d import Axes3D  # 导入3D绘图工具
+
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # 创建一个高度矩阵，用于区分不同的掩模
+        z = np.zeros_like(self.R_grid)
+        z[self.hr_mask] = 1  # hr_mask 区域高度为 1
+        z[self.nh_mask] = 0  # nh_mask 区域高度为 0.5
+
+        # 绘制3D表面
+        surf = ax.plot_surface(self.X, self.Y, z, cmap='coolwarm', edgecolor='k', alpha=0.8)
+
+        # 绘制目标区域边界
+        self.draw_target_region_3d(ax)
+
+        # 设置图形属性
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Mask Value")
+        ax.set_title("3D Visualization of HR and NH Masks")
+        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label="Mask Value")
+        plt.show()
+
+    def draw_target_region_3d(self, ax):
+        """在3D图中绘制目标区域"""
+        if self.target_region["type"] == "circle":
+            r_center, theta_center = self.target_region["center"]
+            x_center = r_center * np.cos(theta_center)
+            y_center = r_center * np.sin(theta_center)
+
+            # 绘制目标区域的圆形边界
+            theta = np.linspace(0, 2 * np.pi, 100)
+            x_circle = x_center + self.target_region["radius"] * np.cos(theta)
+            y_circle = y_center + self.target_region["radius"] * np.sin(theta)
+            z_circle = np.ones_like(x_circle)  # 设置圆的高度
+            ax.plot(x_circle, y_circle, z_circle, color='r', linestyle='--', linewidth=2, label='Target Region')
+        elif self.target_region["type"] == "sector":
+            start_angle, end_angle = self.target_region["angles"]
+            theta = np.linspace(start_angle, end_angle, 100)
+            r = self.R
+            x_sector = r * np.cos(theta)
+            y_sector = r * np.sin(theta)
+            z_sector = np.ones_like(x_sector)
+            ax.plot(x_sector, y_sector, z_sector, color='r', linestyle='--', linewidth=2, label='Target Region')
+        else:
+            raise ValueError("Unsupported region type. Use 'circle' or 'sector'.")
     
     def confirm_target_region(self):
-        """确认目标区域的位置"""
-        plt.figure(figsize=(6, 6))
-        
-        # 绘制网格
-        plt.contourf(self.X, self.Y, np.zeros_like(self.X), levels=1, cmap='gray', alpha=0.1)
-        
+        """确认目标区域的位置，同时显示 hr_mask 和 nh_mask 区域"""
+        plt.figure(figsize=(8, 8))
+
+        # 绘制 hr_mask 区域
+        plt.contourf(self.X, self.Y, self.hr_mask.astype(int), levels=[0, 1], colors=['red'], alpha=0.5, label='HR Mask')
+
+        # 绘制 nh_mask 区域
+        plt.contourf(self.X, self.Y, self.nh_mask.astype(int), levels=[0, 1], colors=['blue'], alpha=0.3, label='NH Mask')
+
         # 绘制目标区域
         ax = plt.gca()
         self.draw_target_region(ax)
-        
+
         # 设置图形属性
         plt.xlabel("X")
         plt.ylabel("Y")
-        plt.title("Target Region Confirmation")
+        plt.title("Target Region and Masks (HR and NH)")
         plt.axis("equal")
-        plt.legend()
+        plt.legend(['HR Mask', 'NH Mask', 'Target Region'])
         plt.grid(True)
         plt.show()
     
@@ -296,7 +355,7 @@ if __name__ == "__main__":
     
     optimizer = ElectricDiskOptimizer(R=1.0, target_region=target_region)
 
-    # optimizer.confirm_target_region()
+    optimizer.confirm_target_region_3d()
     # # 执行优化
     result = optimizer.optimize()
     print("Optimization result:", result.x)
@@ -311,5 +370,6 @@ if __name__ == "__main__":
         pickle.dump(result, f)
     print("Optimization result saved to 'optimization_result.pkl'")
     
+    # zz = [0.98781457 ,0.58673616, 2.90122172, 1.01660049, 5.54310403, 0.83233326]
     # 可视化结果
     optimizer.visualize_results(result.x)
