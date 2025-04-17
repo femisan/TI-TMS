@@ -1,6 +1,4 @@
 import numpy as np
-import jax
-import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.colors import ListedColormap
@@ -225,8 +223,8 @@ class ElectricDisk:
 
         # 计算 cosα
         dot = E1x * E2x + E1y * E2y
-        E1_abs_safe = jnp.where(E1_abs == 0, 1e-12, E1_abs)
-        E2_abs_safe = jnp.where(E2_abs == 0, 1e-12, E2_abs)
+        E1_abs_safe = np.where(E1_abs == 0, 1e-12, E1_abs)
+        E2_abs_safe = np.where(E2_abs == 0, 1e-12, E2_abs)
         cos_alpha = dot / (E1_abs_safe * E2_abs_safe)
 
         # 计算 |E1-E2| 及其模长
@@ -248,10 +246,10 @@ class ElectricDisk:
 
         # 根据条件计算包络幅度
         envelope = np.zeros_like(E1_abs)
-        envelope = jnp.where(cond1, 2 * E2_abs, envelope)
-        envelope = jnp.where(cond2, 2 * cross1_abs / dE_abs, envelope)
-        envelope = jnp.where(cond3, 2 * E1_abs, envelope)
-        envelope = jnp.where(cond4, 2 * cross2_abs / dE_abs, envelope)
+        envelope = np.where(cond1, 2 * E2_abs, envelope)
+        envelope = np.where(cond2, 2 * cross1_abs / dE_abs, envelope)
+        envelope = np.where(cond3, 2 * E1_abs, envelope)
+        envelope = np.where(cond4, 2 * cross2_abs / dE_abs, envelope)
 
         return envelope
 
