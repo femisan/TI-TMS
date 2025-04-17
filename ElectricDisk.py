@@ -209,39 +209,48 @@ class ElectricDisk:
 
     def calculate_envelope(self):
         """
-        计算电场包络 |E_AM| = ||(E1+E2)·n| - |(E1-E2)·n||
-        
-        返回:
-            包络场强分布
+        按公式计算两个电场的包络线幅度
         """
         if len(self.individual_fields) < 2:
             return np.zeros_like(self.R_grid)
-        
-        # 获取前两个电流对的电场
+
         E1x, E1y = self.individual_fields[0]
         E2x, E2y = self.individual_fields[1]
-        
-        # 计算单位法向量场 (径向方向)
-        nx = np.zeros_like(self.X)
-        ny = np.zeros_like(self.Y)
-        norm = np.sqrt(self.X**2 + self.Y**2)
-        valid = norm > 0
-        nx[valid] = self.X[valid] / norm[valid]
-        ny[valid] = self.Y[valid] / norm[valid]
-        
-        # 计算E1+E2和E1-E2
-        E_plus_x = E1x + E2x
-        E_plus_y = E1y + E2y
-        E_minus_x = E1x - E2x
-        E_minus_y = E1y - E2y
-        
-        # 计算点积
-        dot_plus = E_plus_x * nx + E_plus_y * ny
-        dot_minus = E_minus_x * nx + E_minus_y * ny
-        
-        # 计算包络
-        envelope = np.abs(np.abs(dot_plus) - np.abs(dot_minus))
-        
+
+        # 计算模长
+        E1_abs = np.sqrt(E1x**2 + E1y**2)
+        E2_abs = np.sqrt(E2x**2 + E2y**2)
+
+        # 计算 cosα
+        dot = E1x * E2x + E1y * E2y
+        E1_abs_safe = np.where(E1_abs == 0, 1e-12, E1_abs)
+        E2_abs_safe = np.where(E2_abs == 0, 1e-12, E2_abs)
+        cos_alpha = dot / (E1_abs_safe * E2_abs_safe)
+
+        # 计算 |E1-E2| 及其模长
+        dEx = E1x - E2x
+        dEy = E1y - E2y
+        dE_abs = np.sqrt(dEx**2 + dEy**2) + 1e-12  # 防止除零
+
+        # 计算二维叉积
+        cross1 = E2x * dEy - E2y * dEx  # E2 × (E1 - E2)
+        cross2 = E1x * (-dEy) - E1y * (-dEx)  # E1 × (E2 - E1)
+        cross1_abs = np.abs(cross1)
+        cross2_abs = np.abs(cross2)
+
+        # 条件判断
+        cond1 = (E1_abs > E2_abs) & (E2_abs < E1_abs * cos_alpha)
+        cond2 = (E1_abs > E2_abs) & (E2_abs >= E1_abs * cos_alpha)
+        cond3 = (E1_abs <= E2_abs) & (E1_abs < E2_abs * cos_alpha)
+        cond4 = (E1_abs <= E2_abs) & (E1_abs >= E2_abs * cos_alpha)
+
+        # 根据条件计算包络幅度
+        envelope = np.zeros_like(E1_abs)
+        envelope = np.where(cond1, 2 * E2_abs, envelope )
+        envelope = np.where(cond2, 2 * cross1_abs / dE_abs, envelope)
+        envelope = np.where(cond3, 2 * E1_abs, envelope)
+        envelope = np.where(cond4, 2 * cross2_abs / dE_abs , envelope)
+
         return envelope
 
     def plot_envelope(self):

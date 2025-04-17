@@ -73,42 +73,22 @@ class ElectricDiskOptimizer:
         return nx, ny
     
     def calculate_envelope(self, currents):
-        """计算电场包络"""
-        # Ensure envelope has the same shape as the grid
-        envelope = np.zeros_like(self.R_grid)
-        
+        """
+        计算电场包络，利用 ElectricDisk 类中的 calculate_envelope 方法
+        """
         # 重新组织电流参数
         current_pairs = []
         for i in range(0, len(currents), 3):
             current_pairs.append((currents[i], currents[i+1], currents[i+2]))
         
-        # 创建ElectricDisk实例
+        # 创建 ElectricDisk 实例
         disk = ElectricDisk(R=self.R, sigma=self.sigma, 
-                          currents=current_pairs,
-                          n_points=self.n_points)
+                            currents=current_pairs,
+                            n_points=self.n_points)
         
-        # 获取前两个电流对的电场
-        if len(disk.individual_fields) < 2:
-            return np.zeros_like(disk.X)
+        # 调用 ElectricDisk 的 calculate_envelope 方法
+        envelope = disk.calculate_envelope()
         
-        E1x, E1y = disk.individual_fields[0]
-        E2x, E2y = disk.individual_fields[1]
-        
-        # 计算单位法向量场（径向方向）
-        nx, ny = self.safe_normalize(disk.X, disk.Y)
-        
-        # 计算E1+E2和E1-E2
-        E_plus_x = E1x + E2x
-        E_plus_y = E1y + E2y
-        E_minus_x = E1x - E2x
-        E_minus_y = E1y - E2y
-        
-        # 计算点积
-        dot_plus = E_plus_x * nx + E_plus_y * ny
-        dot_minus = E_minus_x * nx + E_minus_y * ny
-        
-        # 计算包络
-        envelope = np.abs(np.abs(dot_plus) - np.abs(dot_minus))
         return envelope
     
     def objective_function(self, currents):
