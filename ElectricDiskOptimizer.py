@@ -138,7 +138,7 @@ class ElectricDiskOptimizer:
                          bounds=bounds,
                          method='L-BFGS-B',
                          callback=callback,  # 添加回调函数
-                         options={'maxiter': 50})
+                         options={'maxiter': 1000, 'disp': True})
         
         return result
     
@@ -337,19 +337,17 @@ if __name__ == "__main__":
 
     optimizer.confirm_target_region_3d()
     # # 执行优化
-    result = optimizer.optimize()
-    print("Optimization result:", result.x)
-    print("Final ratio:", -result.fun)
+    # result = optimizer.optimize()
+    # print("Optimization result:", result.x)
+    # print("Final ratio:", -result.fun)
+    # optimizer.visualize_results(result.x)
 
     # 执行随机梯度下降优化
-    # result = optimizer.sgd_optimize(learning_rate=0.01, max_iter=500)
-    # print("Optimized currents:", result)
+    result = optimizer.sgd_optimize(learning_rate=0.01, max_iter=500)
+    print("Optimized currents:", result)
+    optimizer.visualize_results(result)
     
     # 保存优化结果到pickle文件
     with open("optimization_result.pkl", "wb") as f:
         pickle.dump(result, f)
     print("Optimization result saved to 'optimization_result.pkl'")
-    
-    # zz = [0.98781457 ,0.58673616, 2.90122172, 1.01660049, 5.54310403, 0.83233326]
-    # 可视化结果
-    optimizer.visualize_results(result.x)
